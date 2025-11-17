@@ -141,16 +141,126 @@ app.post("/upload-binary", async (req, res) => {
   }
 });
 
+/** 🔹 METHOD 4: BATCH Upload (OPTIMIZED) */
+app.post("/upload-batch", async (req, res) => {
+  try {
+    const { screenshots } = req.body;
+    if (
+      !screenshots ||
+      !Array.isArray(screenshots) ||
+      screenshots.length === 0
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Missing or invalid screenshots array" });
+    }
+
+    console.log(`\n[BATCH] Processing ${screenshots.length} screenshots...`);
+
+    const results = {
+      successful: 0,
+      failed: 0,
+      total: screenshots.length,
+      details: [],
+    };
+
+    const startTime = Date.now();
+
+    // Process each screenshot in the batch
+    for (let i = 0; i < screenshots.length; i++) {
+      const screenshot = screenshots[i];
+      const { filename, extension, timestamp, image } = screenshot;
+
+      try {
+        if (!filename || !image) {
+          throw new Error("Missing filename or image data");
+        }
+
+        // Decode base64 and upload to S3
+        const buffer = Buffer.from(image, "base64");
+        const key = `${Date.now()}-${filename}.${extension || "jpg"}`;
+
+        await s3.send(
+          new PutObjectCommand({
+            Bucket: BUCKET,
+            Key: key,
+            Body: buffer,
+            ContentType: `image/${extension || "jpg"}`,
+          })
+        );
+
+        results.successful++;
+        results.details.push({
+          index: i,
+          filename: `${filename}.${extension || "jpg"}`,
+          key: key,
+          status: "success",
+          size: buffer.length,
+          sizeKB: (buffer.length / 1024).toFixed(2),
+        });
+
+        console.log(
+          `  [${i + 1}/${screenshots.length}] ✅ ${filename}.${extension} (${(
+            buffer.length / 1024
+          ).toFixed(2)} KB)`
+        );
+      } catch (error) {
+        results.failed++;
+        results.details.push({
+          index: i,
+          filename: filename || "unknown",
+          status: "failed",
+          error: error.message,
+        });
+        console.error(
+          `  [${i + 1}/${screenshots.length}] ❌ ${filename || "unknown"}: ${
+            error.message
+          }`
+        );
+      }
+    }
+
+    const duration = Date.now() - startTime;
+    const avgTimePerFile = (duration / screenshots.length).toFixed(2);
+
+    console.log(
+      `[BATCH] Complete: ${results.successful}/${results.total} successful in ${duration}ms (${avgTimePerFile}ms/file)`
+    );
+
+    // Return success if at least one file was uploaded
+    const statusCode = results.successful > 0 ? 200 : 500;
+    res.status(statusCode).json({
+      message: `Batch upload: ${results.successful}/${results.total} successful`,
+      bucket: BUCKET,
+      ...results,
+      duration,
+      avgTimePerFile,
+    });
+  } catch (error) {
+    console.error("[BATCH] Upload error:", error);
+    res
+      .status(500)
+      .json({ error: "Batch upload failed", details: error.message });
+  }
+});
+
 /** 🔹 Health Check */
 app.get("/", (req, res) => {
   res.json({
     status: "ok",
     message: "Screenshot upload server (S3 version) running",
     bucket: BUCKET,
-    endpoints: ["/upload-json", "/upload", "/upload-binary"],
+    endpoints: ["/upload-json", "/upload", "/upload-binary", "/upload-batch"],
   });
 });
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 S3 Upload Server running at http://0.0.0.0:${PORT}`);
+  console.log(`📦 S3 Bucket: ${BUCKET}`);
+  console.log(`\nAvailable endpoints:`);
+  console.log(`  - POST /upload-json (JSON + Base64)`);
+  console.log(`  - POST /upload (FormData Multipart)`);
+  console.log(`  - POST /upload-binary (Raw Binary)`);
+  console.log(`  - POST /upload-batch (Batch JSON Upload) ⚡ OPTIMIZED`);
+  console.log(`  - GET / (Health Check)`);
 });
