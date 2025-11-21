@@ -141,10 +141,19 @@ app.post("/upload-binary", async (req, res) => {
   }
 });
 
-/** 🔹 METHOD 4: BATCH Upload (OPTIMIZED) */
+/** 🔹 METHOD 4: BATCH Upload (OPTIMIZED) with Folder Structure */
 app.post("/upload-batch", async (req, res) => {
   try {
-    const { screenshots } = req.body;
+    const { mobileNumber, assessmentId, screenshots } = req.body;
+
+    // Validate mobileNumber
+    if (!mobileNumber || mobileNumber.trim() === "") {
+      return res
+        .status(400)
+        .json({ error: "mobileNumber is required and cannot be empty" });
+    }
+
+    // Validate screenshots array
     if (
       !screenshots ||
       !Array.isArray(screenshots) ||
@@ -155,12 +164,20 @@ app.post("/upload-batch", async (req, res) => {
         .json({ error: "Missing or invalid screenshots array" });
     }
 
+    // Determine folder structure based on assessmentId
+    let folderPath = `${mobileNumber}`;
+    if (assessmentId && assessmentId.trim() !== "") {
+      folderPath = `${mobileNumber}/${assessmentId}`;
+    }
+
     console.log(`\n[BATCH] Processing ${screenshots.length} screenshots...`);
+    console.log(`[BATCH] Storage path: ${folderPath}/`);
 
     const results = {
       successful: 0,
       failed: 0,
       total: screenshots.length,
+      folderPath: folderPath,
       details: [],
     };
 
@@ -178,21 +195,22 @@ app.post("/upload-batch", async (req, res) => {
 
         // Decode base64 and upload to S3
         const buffer = Buffer.from(image, "base64");
-        const key = `${Date.now()}-${filename}.${extension || "jpg"}`;
+        const imageExtension = extension || "jpg";
+        const key = `${folderPath}/${Date.now()}-${filename}.${imageExtension}`;
 
         await s3.send(
           new PutObjectCommand({
             Bucket: BUCKET,
             Key: key,
             Body: buffer,
-            ContentType: `image/${extension || "jpg"}`,
+            ContentType: `image/${imageExtension}`,
           })
         );
 
         results.successful++;
         results.details.push({
           index: i,
-          filename: `${filename}.${extension || "jpg"}`,
+          filename: `${filename}.${imageExtension}`,
           key: key,
           status: "success",
           size: buffer.length,
@@ -200,9 +218,11 @@ app.post("/upload-batch", async (req, res) => {
         });
 
         console.log(
-          `  [${i + 1}/${screenshots.length}] ✅ ${filename}.${extension} (${(
-            buffer.length / 1024
-          ).toFixed(2)} KB)`
+          `  [${i + 1}/${
+            screenshots.length
+          }] ✅ ${filename}.${imageExtension} (${(buffer.length / 1024).toFixed(
+            2
+          )} KB) → ${key}`
         );
       } catch (error) {
         results.failed++;
