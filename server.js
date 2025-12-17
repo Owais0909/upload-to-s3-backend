@@ -51,12 +51,12 @@ app.use(bodyParser.urlencoded({ extended: true, limit: BODY_SIZE_LIMIT }));
 
 /**
  * Sanitize mobile number for folder name
- * Keeps only alphanumeric characters and replaces special chars with underscore
- * Example: "+1234567890" → "_1234567890"
+ * Keeps only alphanumeric characters and +, replaces other special chars with underscore
+ * Example: "+1234567890" → "+1234567890"
  */
 function sanitizeMobileNumber(mobileNumber) {
   if (!mobileNumber || typeof mobileNumber !== "string") return "unknown";
-  let sanitized = mobileNumber.replace(/[^a-zA-Z0-9]/g, "_");
+  let sanitized = mobileNumber.replace(/[^a-zA-Z0-9+]/g, "_");
   sanitized = sanitized.replace(/_+/g, "_"); // Remove multiple consecutive underscores
   sanitized = sanitized.replace(/^_+|_+$/g, ""); // Remove leading/trailing underscores
   return sanitized || "unknown";
